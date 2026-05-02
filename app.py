@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import random
+import time
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -31,6 +33,12 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
+
+# ── Session state defaults ────────────────────────────────────────────────────
+if "result" not in st.session_state:
+    st.session_state.result = None        # dict once analysed, None before
+if "last_inputs" not in st.session_state:
+    st.session_state.last_inputs = None   # tuple(crack, stress, cycles) used last run
 
 
 CUSTOM_CSS = """
@@ -436,6 +444,56 @@ section[data-testid="stSidebar"] [data-baseweb="input"] { border-color: #cbd5e1;
 
 header[data-testid="stHeader"] { background: transparent; }
 
+/* ── Analysis states ── */
+@keyframes thinking-pulse {
+    0%, 100% { opacity: 0.4; transform: scaleY(0.6); }
+    50%       { opacity: 1;   transform: scaleY(1); }
+}
+.sfp-pending-value {
+    font-size: 2.1rem !important;
+    font-weight: 800 !important;
+    color: #cbd5e1 !important;
+    margin: 0 !important;
+    line-height: 1 !important;
+    letter-spacing: 1px;
+}
+.sfp-stale-note {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: var(--warning);
+    background: rgba(180,83,9,0.08);
+    border: 1px solid rgba(180,83,9,0.25);
+    border-radius: 6px;
+    padding: 0.2rem 0.5rem;
+    margin-top: 0.35rem;
+}
+.sfp-analyze-hint {
+    font-size: 0.8rem;
+    color: var(--text-soft);
+    font-style: italic;
+    margin-top: 0.3rem;
+}
+.sfp-thinking-bars {
+    display: flex;
+    align-items: flex-end;
+    gap: 3px;
+    height: 2.2rem;
+    margin: 0.3rem 0;
+}
+.sfp-thinking-bar {
+    width: 7px;
+    background: var(--primary);
+    border-radius: 3px;
+    animation: thinking-pulse 1.1s ease-in-out infinite;
+}
+.sfp-thinking-bar:nth-child(2) { animation-delay: 0.18s; }
+.sfp-thinking-bar:nth-child(3) { animation-delay: 0.36s; }
+.sfp-thinking-bar:nth-child(4) { animation-delay: 0.54s; }
+.sfp-thinking-bar:nth-child(5) { animation-delay: 0.72s; }
+
 @media (max-width: 760px) {
     .block-container { padding-top: 1rem; }
     .sfp-hero { padding: 1.15rem; }
@@ -611,6 +669,15 @@ with st.sidebar:
     )
 
     st.markdown("---")
+
+    # ── Analyze button ──────────────────────────────────────────────────────
+    analyze_clicked = st.button(
+        "⚙ Analyze Component",
+        use_container_width=True,
+        type="primary",
+    )
+
+    st.markdown("---")
     st.markdown("**Risk thresholds**")
     st.markdown(
         "<div class='sfp-thresholds'>"
@@ -620,6 +687,84 @@ with st.sidebar:
         "</div>",
         unsafe_allow_html=True,
     )
+
+# ── Run analysis with animated delay ─────────────────────────────────────────
+current_inputs = (crack_size, stress, cycles)
+
+if analyze_clicked:
+    delay = random.uniform(3, 15)
+    steps = 60
+    step_time = delay / steps
+
+    progress_placeholder = st.empty()
+    with progress_placeholder.container():
+        st.markdown(
+            """
+            <div style="background:#ffffff;border:1px solid #d8dee8;border-radius:10px;
+                        padding:1.2rem 1.5rem;margin-bottom:1rem;
+                        box-shadow:0 1px 3px rgba(15,23,42,0.07);">
+                <div style="font-size:0.78rem;font-weight:700;text-transform:uppercase;
+                            letter-spacing:0.5px;color:#374151;margin-bottom:0.6rem;">
+                    ⚙ Running AI analysis&hellip;
+                </div>
+                <div style="font-size:0.85rem;color:#4b5563;margin-bottom:0.9rem;">
+                    Evaluating crack propagation, stress intensity factor,
+                    and fatigue cycle data against the trained model.
+                </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        bar = st.progress(0, text="Initialising model inference…")
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    phases = [
+        (0.15, "Loading feature vectors…"),
+        (0.35, "Traversing decision trees…"),
+        (0.55, "Aggregating ensemble votes…"),
+        (0.75, "Calibrating probability estimate…"),
+        (0.92, "Finalising risk classification…"),
+        (1.00, "Analysis complete."),
+    ]
+    phase_idx = 0
+    for i in range(steps + 1):
+        frac = i / steps
+        if phase_idx < len(phases) and frac >= phases[phase_idx][0]:
+            bar.progress(frac, text=phases[phase_idx][1])
+            phase_idx += 1
+        else:
+            bar.progress(frac)
+        time.sleep(step_time)
+
+    # Compute actual result
+    input_row = pd.DataFrame([{
+        "crack_length_mm": crack_size,
+        "stress_intensity": stress,
+        "load_cycles": cycles,
+    }])
+    prob = float(model.predict_proba(input_row)[0, 1])
+    st.session_state.result = {
+        "probability": prob,
+        "crack": crack_size,
+        "stress": stress,
+        "cycles": cycles,
+    }
+    st.session_state.last_inputs = current_inputs
+    progress_placeholder.empty()
+    st.rerun()
+
+# ── Derive display values from session state ──────────────────────────────────
+res = st.session_state.result
+has_result = res is not None
+inputs_changed = has_result and (st.session_state.last_inputs != current_inputs)
+
+if has_result:
+    failure_probability = res["probability"]
+    risk_text = risk_label(failure_probability)
+    risk_css  = risk_class(failure_probability)
+else:
+    failure_probability = None
+    risk_text = "—"
+    risk_css  = "sfp-risk-low"
 
 # Hero
 st.markdown(
@@ -637,39 +782,55 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# KPI strip
-input_row = pd.DataFrame([{
-    "crack_length_mm": crack_size,
-    "stress_intensity": stress,
-    "load_cycles": cycles,
-}])
-failure_probability = float(model.predict_proba(input_row)[0, 1])
-risk_text = risk_label(failure_probability)
-risk_css  = risk_class(failure_probability)
+# ── KPI strip ─────────────────────────────────────────────────────────────────
+stale_badge = (
+    '<div class="sfp-stale-note">⚠ Inputs changed — re-analyze</div>'
+    if inputs_changed else ""
+)
 
 kpi1, kpi2, kpi3, kpi4 = st.columns(4, gap="medium")
 with kpi1:
-    st.markdown(
-        f"""<div class="sfp-card">
-            <p class="sfp-card-title">Failure probability</p>
-            <p class="sfp-card-value">{failure_probability * 100:.1f}%</p>
-            <p class="sfp-card-sub">Current input scenario</p>
-        </div>""",
-        unsafe_allow_html=True,
-    )
+    if has_result:
+        st.markdown(
+            f"""<div class="sfp-card">
+                <p class="sfp-card-title">Failure probability</p>
+                <p class="sfp-card-value">{failure_probability * 100:.1f}%</p>
+                <p class="sfp-card-sub">Last analysis result{' · inputs updated' if inputs_changed else ''}</p>
+            </div>""",
+            unsafe_allow_html=True,
+        )
+    else:
+        st.markdown(
+            """<div class="sfp-card">
+                <p class="sfp-card-title">Failure probability</p>
+                <p class="sfp-pending-value">— %</p>
+                <p class="sfp-analyze-hint">Run analysis to see result</p>
+            </div>""",
+            unsafe_allow_html=True,
+        )
 with kpi2:
-    st.markdown(
-        f"""<div class="sfp-card">
-            <p class="sfp-card-title">Risk classification</p>
-            <p class="sfp-card-value sfp-card-value--badge">
-                <span class="sfp-risk {risk_css}">
-                    <span class="sfp-risk-dot"></span>{risk_text}
-                </span>
-            </p>
-            <p class="sfp-card-sub">Threshold-based label</p>
-        </div>""",
-        unsafe_allow_html=True,
-    )
+    if has_result:
+        st.markdown(
+            f"""<div class="sfp-card">
+                <p class="sfp-card-title">Risk classification</p>
+                <p class="sfp-card-value sfp-card-value--badge">
+                    <span class="sfp-risk {risk_css}">
+                        <span class="sfp-risk-dot"></span>{risk_text}
+                    </span>
+                </p>
+                <p class="sfp-card-sub">Threshold-based label</p>
+            </div>""",
+            unsafe_allow_html=True,
+        )
+    else:
+        st.markdown(
+            """<div class="sfp-card">
+                <p class="sfp-card-title">Risk classification</p>
+                <p class="sfp-pending-value">—</p>
+                <p class="sfp-analyze-hint">Awaiting analysis</p>
+            </div>""",
+            unsafe_allow_html=True,
+        )
 with kpi3:
     st.markdown(
         f"""<div class="sfp-card">
@@ -689,6 +850,9 @@ with kpi4:
         unsafe_allow_html=True,
     )
 
+if inputs_changed:
+    st.markdown(stale_badge, unsafe_allow_html=True)
+
 st.write("")
 
 # Tabs
@@ -702,25 +866,44 @@ with tab_pred:
         with st.container(border=True):
             st.markdown('<p class="sfp-section-title">Risk gauge</p>', unsafe_allow_html=True)
             st.markdown(
-                '<p class="sfp-section-sub">Probability of failure for the current inspection inputs.</p>',
+                '<p class="sfp-section-sub">Failure probability for the current inspection inputs.</p>',
                 unsafe_allow_html=True,
             )
             gauge_left, gauge_right = st.columns([1.4, 1])
             with gauge_left:
-                st.pyplot(render_gauge(failure_probability), use_container_width=True)
+                gauge_val = failure_probability if has_result else 0.0
+                st.pyplot(render_gauge(gauge_val), use_container_width=True)
             with gauge_right:
-                st.markdown(
-                    f"""<div class="sfp-readout">
-                        <p class="sfp-gauge-value">{failure_probability * 100:.1f}<span class="sfp-gauge-pct">%</span></p>
-                        <p class="sfp-gauge-label">Failure probability</p>
-                        <div style="margin-top:1rem;">
-                            <span class="sfp-risk {risk_css}">
-                                <span class="sfp-risk-dot"></span>{risk_text}
-                            </span>
-                        </div>
-                    </div>""",
-                    unsafe_allow_html=True,
-                )
+                if has_result:
+                    st.markdown(
+                        f"""<div class="sfp-readout">
+                            <p class="sfp-gauge-value">{failure_probability * 100:.1f}<span class="sfp-gauge-pct">%</span></p>
+                            <p class="sfp-gauge-label">Failure probability</p>
+                            <div style="margin-top:1rem;">
+                                <span class="sfp-risk {risk_css}">
+                                    <span class="sfp-risk-dot"></span>{risk_text}
+                                </span>
+                            </div>
+                        </div>""",
+                        unsafe_allow_html=True,
+                    )
+                else:
+                    st.markdown(
+                        """<div class="sfp-readout">
+                            <div class="sfp-thinking-bars">
+                                <div class="sfp-thinking-bar" style="height:60%"></div>
+                                <div class="sfp-thinking-bar" style="height:100%"></div>
+                                <div class="sfp-thinking-bar" style="height:75%"></div>
+                                <div class="sfp-thinking-bar" style="height:90%"></div>
+                                <div class="sfp-thinking-bar" style="height:50%"></div>
+                            </div>
+                            <p class="sfp-gauge-label">Awaiting analysis</p>
+                            <p class="sfp-analyze-hint" style="margin-top:0.4rem;">
+                                Click &ldquo;Analyze Component&rdquo; in the sidebar
+                            </p>
+                        </div>""",
+                        unsafe_allow_html=True,
+                    )
 
     with right:
         with st.container(border=True):
@@ -739,7 +922,12 @@ with tab_pred:
             )
 
             st.markdown('<p class="sfp-action-title">Recommended action</p>', unsafe_allow_html=True)
-            if failure_probability >= 0.70:
+            if not has_result:
+                st.info(
+                    "Set your inspection values in the sidebar and click **Analyze Component** to get a risk assessment.",
+                    icon=":material/info:",
+                )
+            elif failure_probability >= 0.70:
                 st.error(
                     "Immediate action required. Remove the component from service and perform "
                     "non-destructive evaluation before further loading.",
