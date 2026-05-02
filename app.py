@@ -114,20 +114,12 @@ CUSTOM_CSS = """
     margin-bottom: 0.45rem;
 }
 
-/* Panel and card surfaces */
-.sfp-panel,
+/* Card surfaces */
 .sfp-card {
     background: var(--sfp-surface);
     border: 1px solid var(--sfp-border);
     border-radius: 8px;
     box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
-}
-.sfp-panel {
-    padding: 1.25rem;
-    min-height: 360px;
-    color: var(--sfp-text);
-}
-.sfp-card {
     padding: 1.15rem 1.2rem;
     min-height: 132px;
     height: 100%;
@@ -323,6 +315,12 @@ section[data-testid="stSidebar"] [data-baseweb="input"] {
 .stTabs [aria-selected="true"] {
     color: var(--sfp-primary) !important;
 }
+[data-testid="stVerticalBlockBorderWrapper"] {
+    background: var(--sfp-surface);
+    border-color: var(--sfp-border) !important;
+    border-radius: 8px;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
+}
 [data-testid="stAlert"],
 [data-testid="stAlert"] * {
     color: var(--sfp-text) !important;
@@ -353,10 +351,6 @@ section[data-testid="stSidebar"] [data-baseweb="input"] {
     }
     .sfp-hero h1 {
         font-size: 1.35rem;
-    }
-    .sfp-panel {
-        min-height: auto;
-        padding: 1rem;
     }
     .sfp-card {
         min-height: 118px;
@@ -686,74 +680,68 @@ with tab_pred:
     left, right = st.columns([1.1, 0.9], gap="large")
 
     with left:
-        st.markdown(
-            """
-            <div class="sfp-panel">
-                <p class="sfp-section-title">Risk gauge</p>
-                <p class="sfp-section-sub">Probability of failure for the current inspection inputs.</p>
-            """,
-            unsafe_allow_html=True,
-        )
-        gauge_col_left, gauge_col_right = st.columns([1.4, 1])
-        with gauge_col_left:
-            st.pyplot(render_gauge(failure_probability), use_container_width=True)
-        with gauge_col_right:
+        with st.container(border=True):
+            st.markdown('<p class="sfp-section-title">Risk gauge</p>', unsafe_allow_html=True)
+            st.markdown(
+                '<p class="sfp-section-sub">Probability of failure for the current inspection inputs.</p>',
+                unsafe_allow_html=True,
+            )
+            gauge_col_left, gauge_col_right = st.columns([1.4, 1])
+            with gauge_col_left:
+                st.pyplot(render_gauge(failure_probability), use_container_width=True)
+            with gauge_col_right:
+                st.markdown(
+                    f"""
+                    <div class="sfp-readout">
+                        <p class="sfp-gauge-value">{failure_probability * 100:.1f}<span style="font-size:1.6rem;color:#374151;">%</span></p>
+                        <p class="sfp-gauge-label">Failure probability</p>
+                        <div style="margin-top:0.9rem;">
+                            <span class="sfp-risk {risk_css}">
+                                <span class="sfp-risk-dot"></span>{risk_text}
+                            </span>
+                        </div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+
+    with right:
+        with st.container(border=True):
+            st.markdown('<p class="sfp-section-title">Inspection summary</p>', unsafe_allow_html=True)
+            st.markdown(
+                '<p class="sfp-section-sub">Snapshot of the inputs feeding the prediction.</p>',
+                unsafe_allow_html=True,
+            )
             st.markdown(
                 f"""
-                <div class="sfp-readout">
-                    <p class="sfp-gauge-value">{failure_probability * 100:.1f}<span style="font-size:1.6rem;color:#374151;">%</span></p>
-                    <p class="sfp-gauge-label">Failure probability</p>
-                    <div style="margin-top:0.9rem;">
-                        <span class="sfp-risk {risk_css}">
-                            <span class="sfp-risk-dot"></span>{risk_text}
-                        </span>
-                    </div>
+                <div class="sfp-chip-row">
+                    <div class="sfp-chip"><span>Crack length</span><strong>{crack_size:.1f} mm</strong></div>
+                    <div class="sfp-chip"><span>Stress intensity</span><strong>{stress:.1f}</strong></div>
+                    <div class="sfp-chip"><span>Load cycles</span><strong>{format_cycles(int(cycles))}</strong></div>
                 </div>
                 """,
                 unsafe_allow_html=True,
             )
-        st.markdown("</div>", unsafe_allow_html=True)
 
-    with right:
-        st.markdown(
-            """
-            <div class="sfp-panel">
-                <p class="sfp-section-title">Inspection summary</p>
-                <p class="sfp-section-sub">Snapshot of the inputs feeding the prediction.</p>
-            """,
-            unsafe_allow_html=True,
-        )
-        st.markdown(
-            f"""
-            <div class="sfp-chip-row">
-                <div class="sfp-chip"><span>Crack length</span><strong>{crack_size:.1f} mm</strong></div>
-                <div class="sfp-chip"><span>Stress intensity</span><strong>{stress:.1f}</strong></div>
-                <div class="sfp-chip"><span>Load cycles</span><strong>{format_cycles(int(cycles))}</strong></div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-        st.markdown('<p class="sfp-action-title">Recommended action</p>', unsafe_allow_html=True)
-        if failure_probability >= 0.70:
-            st.error(
-                "Immediate action required. Remove the component from service and perform "
-                "non-destructive evaluation before further loading.",
-                icon=":material/warning:",
-            )
-        elif failure_probability >= 0.35:
-            st.warning(
-                "Schedule a near-term inspection. Consider reducing duty cycle and tracking "
-                "crack growth rate.",
-                icon=":material/error:",
-            )
-        else:
-            st.success(
-                "Component appears within safe operating bounds. Continue with the regular "
-                "inspection interval.",
-                icon=":material/check_circle:",
-            )
-        st.markdown("</div>", unsafe_allow_html=True)
+            st.markdown('<p class="sfp-action-title">Recommended action</p>', unsafe_allow_html=True)
+            if failure_probability >= 0.70:
+                st.error(
+                    "Immediate action required. Remove the component from service and perform "
+                    "non-destructive evaluation before further loading.",
+                    icon=":material/warning:",
+                )
+            elif failure_probability >= 0.35:
+                st.warning(
+                    "Schedule a near-term inspection. Consider reducing duty cycle and tracking "
+                    "crack growth rate.",
+                    icon=":material/error:",
+                )
+            else:
+                st.success(
+                    "Component appears within safe operating bounds. Continue with the regular "
+                    "inspection interval.",
+                    icon=":material/check_circle:",
+                )
 
 with tab_model:
     st.markdown('<p class="sfp-section-title">Model performance</p>', unsafe_allow_html=True)
