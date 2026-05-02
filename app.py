@@ -115,21 +115,40 @@ CUSTOM_CSS = """
     margin-bottom: 0.45rem;
 }
 
+/* ── Force equal-height KPI columns ── */
+[data-testid="stHorizontalBlock"] {
+    align-items: stretch !important;
+}
+[data-testid="stHorizontalBlock"] > [data-testid="column"] {
+    display: flex;
+    flex-direction: column;
+}
+[data-testid="stHorizontalBlock"] > [data-testid="column"] > [data-testid="stVerticalBlock"] {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+}
+[data-testid="stHorizontalBlock"] > [data-testid="column"] > [data-testid="stVerticalBlock"] > [data-testid="stMarkdownContainer"] {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+}
+
 /* ── KPI cards ── */
 .sfp-card {
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: var(--radius);
     box-shadow: var(--shadow-sm);
-    padding: 1.15rem 1.2rem;
-    min-height: 132px;
-    height: 100%;
+    padding: 1.4rem 1.4rem 1.2rem;
+    height: 148px;
     display: flex;
     flex-direction: column;
     justify-content: space-between;
     color: var(--text);
     transition: var(--transition);
     cursor: default;
+    box-sizing: border-box;
 }
 .sfp-card:hover {
     transform: translateY(-4px) scale(1.02);
@@ -137,26 +156,33 @@ CUSTOM_CSS = """
     border-color: #b8c8da;
 }
 .sfp-card-title {
-    font-size: 0.78rem;
+    font-size: 0.72rem;
     font-weight: 700;
     text-transform: uppercase;
-    letter-spacing: 0.3px;
+    letter-spacing: 0.5px;
     color: var(--text-soft);
-    margin: 0 0 0.45rem;
+    margin: 0 0 0.5rem;
     line-height: 1.25;
 }
 .sfp-card-value {
-    font-size: 1.9rem;
-    font-weight: 750;
-    color: var(--primary);
-    margin: 0;
-    line-height: 1.1;
+    font-size: 2.1rem !important;
+    font-weight: 800 !important;
+    color: var(--primary) !important;
+    margin: 0 !important;
+    line-height: 1 !important;
+}
+.sfp-card-value--badge {
+    display: flex !important;
+    align-items: center !important;
+    font-size: 1rem !important;
 }
 .sfp-card-sub {
-    font-size: 0.86rem;
+    font-size: 0.8rem;
     color: var(--muted);
-    margin-top: 0.45rem;
-    line-height: 1.35;
+    margin: 0;
+    padding-top: 0.6rem;
+    line-height: 1.3;
+    border-top: 1px solid var(--border);
 }
 
 /* ── Risk badge ── */
@@ -262,20 +288,37 @@ section[data-testid="stSidebar"] [data-baseweb="input"] { border-color: #cbd5e1;
 .sfp-action-title { font-weight: 700; color: var(--text); margin: 1.15rem 0 0.35rem; }
 
 /* ── Gauge readout ── */
-.sfp-readout { padding-top: 0.5rem; }
+.sfp-readout {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 1rem 0;
+    height: 100%;
+}
 .sfp-gauge-value {
-    font-size: 3.1rem;
-    font-weight: 750;
-    color: var(--primary);
-    line-height: 1;
-    margin: 0;
+    font-size: 5rem !important;
+    font-weight: 800 !important;
+    color: var(--primary) !important;
+    line-height: 1 !important;
+    margin: 0 !important;
+    letter-spacing: -2px !important;
+}
+.sfp-gauge-value .sfp-gauge-pct {
+    font-size: 2.4rem !important;
+    font-weight: 700 !important;
+    color: var(--text-soft) !important;
+    vertical-align: baseline !important;
+    letter-spacing: 0 !important;
+    margin-left: 4px !important;
 }
 .sfp-gauge-label {
-    font-size: 0.84rem;
+    font-size: 0.72rem;
     text-transform: uppercase;
-    letter-spacing: 0.3px;
+    letter-spacing: 0.6px;
     color: var(--text-soft);
-    margin: 0.45rem 0 0;
+    margin: 0.5rem 0 0;
     font-weight: 700;
 }
 
@@ -608,10 +651,8 @@ kpi1, kpi2, kpi3, kpi4 = st.columns(4, gap="medium")
 with kpi1:
     st.markdown(
         f"""<div class="sfp-card">
-            <div>
-                <p class="sfp-card-title">Failure probability</p>
-                <p class="sfp-card-value">{failure_probability * 100:.1f}%</p>
-            </div>
+            <p class="sfp-card-title">Failure probability</p>
+            <p class="sfp-card-value">{failure_probability * 100:.1f}%</p>
             <p class="sfp-card-sub">Current input scenario</p>
         </div>""",
         unsafe_allow_html=True,
@@ -619,14 +660,12 @@ with kpi1:
 with kpi2:
     st.markdown(
         f"""<div class="sfp-card">
-            <div>
-                <p class="sfp-card-title">Risk classification</p>
-                <p class="sfp-card-value" style="font-size:1.2rem;">
-                    <span class="sfp-risk {risk_css}">
-                        <span class="sfp-risk-dot"></span>{risk_text}
-                    </span>
-                </p>
-            </div>
+            <p class="sfp-card-title">Risk classification</p>
+            <p class="sfp-card-value sfp-card-value--badge">
+                <span class="sfp-risk {risk_css}">
+                    <span class="sfp-risk-dot"></span>{risk_text}
+                </span>
+            </p>
             <p class="sfp-card-sub">Threshold-based label</p>
         </div>""",
         unsafe_allow_html=True,
@@ -634,10 +673,8 @@ with kpi2:
 with kpi3:
     st.markdown(
         f"""<div class="sfp-card">
-            <div>
-                <p class="sfp-card-title">Model accuracy</p>
-                <p class="sfp-card-value">{accuracy * 100:.1f}%</p>
-            </div>
+            <p class="sfp-card-title">Model accuracy</p>
+            <p class="sfp-card-value">{accuracy * 100:.1f}%</p>
             <p class="sfp-card-sub">On {test_rows:,} held-out samples</p>
         </div>""",
         unsafe_allow_html=True,
@@ -645,11 +682,9 @@ with kpi3:
 with kpi4:
     st.markdown(
         f"""<div class="sfp-card">
-            <div>
-                <p class="sfp-card-title">Training rows</p>
-                <p class="sfp-card-value">{total_rows:,}</p>
-            </div>
-            <p class="sfp-card-sub">Random Forest, 200 trees</p>
+            <p class="sfp-card-title">Training rows</p>
+            <p class="sfp-card-value">{total_rows:,}</p>
+            <p class="sfp-card-sub">Random Forest · 200 trees</p>
         </div>""",
         unsafe_allow_html=True,
     )
@@ -676,9 +711,9 @@ with tab_pred:
             with gauge_right:
                 st.markdown(
                     f"""<div class="sfp-readout">
-                        <p class="sfp-gauge-value">{failure_probability * 100:.1f}<span style="font-size:1.6rem;color:#374151;">%</span></p>
+                        <p class="sfp-gauge-value">{failure_probability * 100:.1f}<span class="sfp-gauge-pct">%</span></p>
                         <p class="sfp-gauge-label">Failure probability</p>
-                        <div style="margin-top:0.9rem;">
+                        <div style="margin-top:1rem;">
                             <span class="sfp-risk {risk_css}">
                                 <span class="sfp-risk-dot"></span>{risk_text}
                             </span>
