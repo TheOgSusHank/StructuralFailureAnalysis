@@ -14,6 +14,7 @@ from sklearn.metrics import accuracy_score, confusion_matrix
 from sklearn.model_selection import train_test_split
 
 from data.generate_data import generate_crack_growth_data
+from image_analysis import analyse_crack_image
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent
@@ -39,6 +40,14 @@ if "result" not in st.session_state:
     st.session_state.result = None        # dict once analysed, None before
 if "last_inputs" not in st.session_state:
     st.session_state.last_inputs = None   # tuple(crack, stress, cycles) used last run
+if "image_result" not in st.session_state:
+    st.session_state.image_result = None  # dict from vision API, None before
+if "prefill_crack" not in st.session_state:
+    st.session_state.prefill_crack = 10.0
+if "prefill_stress" not in st.session_state:
+    st.session_state.prefill_stress = 35.0
+if "prefill_cycles" not in st.session_state:
+    st.session_state.prefill_cycles = 250_000
 
 
 CUSTOM_CSS = """
@@ -501,6 +510,117 @@ header[data-testid="stHeader"] { background: transparent; }
     .sfp-card { min-height: 118px; }
     .sfp-gauge-value { font-size: 2.5rem; }
 }
+
+/* ── Photo analysis ── */
+.sfp-sev-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.4rem 0.85rem;
+    border-radius: 999px;
+    font-size: 0.86rem;
+    font-weight: 700;
+    letter-spacing: 0.2px;
+    transition: var(--transition);
+    cursor: default;
+}
+.sfp-sev-badge:hover { transform: scale(1.06); }
+.sfp-sev-low      { color: var(--success); background: rgba(21,128,61,0.10);  border: 1px solid rgba(21,128,61,0.30); }
+.sfp-sev-moderate { color: var(--warning); background: rgba(180,83,9,0.12);   border: 1px solid rgba(180,83,9,0.30); }
+.sfp-sev-high     { color: var(--danger);  background: rgba(185,28,28,0.10);  border: 1px solid rgba(185,28,28,0.32); }
+.sfp-sev-critical {
+    color: #7c0000;
+    background: rgba(124,0,0,0.10);
+    border: 1px solid rgba(124,0,0,0.35);
+    animation: critical-pulse 1.8s ease-in-out infinite;
+}
+@keyframes critical-pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(185,28,28,0); }
+    50%       { box-shadow: 0 0 0 6px rgba(185,28,28,0.18); }
+}
+.sfp-conf-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    font-size: 0.78rem;
+    font-weight: 700;
+    padding: 0.22rem 0.55rem;
+    border-radius: 6px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text-soft);
+    transition: var(--transition);
+}
+.sfp-conf-badge:hover { transform: scale(1.04); }
+.sfp-detail-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.55rem;
+    margin: 0.9rem 0;
+}
+.sfp-detail-item {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.6rem 0.75rem;
+    transition: var(--transition);
+    cursor: default;
+}
+.sfp-detail-item:hover {
+    transform: translateY(-2px) scale(1.01);
+    box-shadow: var(--shadow-sm);
+    border-color: #b8c8da;
+}
+.sfp-detail-label {
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    color: var(--text-soft);
+    margin: 0 0 0.2rem;
+}
+.sfp-detail-val {
+    font-size: 0.92rem;
+    font-weight: 600;
+    color: var(--primary);
+    margin: 0;
+}
+.sfp-findings-box {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--primary);
+    border-radius: 0 8px 8px 0;
+    padding: 0.85rem 1rem;
+    margin: 0.9rem 0;
+    font-size: 0.93rem;
+    color: var(--text);
+    line-height: 1.55;
+    transition: var(--transition);
+}
+.sfp-findings-box:hover { box-shadow: var(--shadow-sm); }
+.sfp-no-crack {
+    text-align: center;
+    padding: 2.5rem 1rem;
+    color: var(--text-soft);
+}
+.sfp-no-crack-icon { font-size: 2.8rem; margin-bottom: 0.5rem; }
+.sfp-upload-hint {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 2.5rem 1rem;
+    border: 2px dashed var(--border);
+    border-radius: var(--radius);
+    text-align: center;
+    color: var(--text-soft);
+    font-size: 0.9rem;
+    background: var(--surface2);
+    transition: var(--transition);
+    cursor: default;
+}
+.sfp-upload-hint:hover { border-color: #94a3b8; background: #eef4fb; }
+.sfp-upload-hint-icon { font-size: 2.2rem; margin-bottom: 0.5rem; opacity: 0.6; }
 </style>
 """
 
@@ -654,18 +774,24 @@ with st.sidebar:
 
     crack_size = st.number_input(
         "Crack size (mm)",
-        min_value=0.0, max_value=250.0, value=10.0, step=0.5,
+        min_value=0.0, max_value=250.0,
+        value=float(st.session_state.prefill_crack), step=0.5,
         help="Measured surface crack length in millimeters.",
+        key="sb_crack",
     )
     stress = st.number_input(
         "Stress intensity",
-        min_value=0.0, max_value=250.0, value=35.0, step=1.0,
+        min_value=0.0, max_value=250.0,
+        value=float(st.session_state.prefill_stress), step=1.0,
         help="Stress intensity factor in MPa·√m.",
+        key="sb_stress",
     )
     cycles = st.number_input(
         "Load cycles",
-        min_value=0, max_value=10_000_000, value=250_000, step=10_000,
+        min_value=0, max_value=10_000_000,
+        value=int(st.session_state.prefill_cycles), step=10_000,
         help="Cumulative number of load cycles experienced by the component.",
+        key="sb_cycles",
     )
 
     st.markdown("---")
@@ -856,7 +982,9 @@ if inputs_changed:
 st.write("")
 
 # Tabs
-tab_pred, tab_model, tab_about = st.tabs(["Prediction", "Model Performance", "About"])
+tab_pred, tab_photo, tab_model, tab_about = st.tabs(
+    ["Prediction", "📷 Photo Analysis", "Model Performance", "About"]
+)
 
 # ── PREDICTION ──────────────────────────────────────────────────────────────
 with tab_pred:
@@ -945,6 +1073,204 @@ with tab_pred:
                     "inspection interval.",
                     icon=":material/check_circle:",
                 )
+
+# ── PHOTO ANALYSIS ───────────────────────────────────────────────────────────
+with tab_photo:
+    st.markdown('<p class="sfp-section-title">AI-powered crack photo analysis</p>', unsafe_allow_html=True)
+    st.markdown(
+        '<p class="sfp-section-sub">Upload a photograph of the component and the AI will characterise '
+        'any visible cracks, estimate measurements, and optionally load the findings into the predictor.</p>',
+        unsafe_allow_html=True,
+    )
+
+    photo_left, photo_right = st.columns([1, 1.1], gap="large")
+
+    with photo_left:
+        with st.container(border=True):
+            st.markdown("**Upload photo**")
+            uploaded_file = st.file_uploader(
+                "Choose an image",
+                type=["jpg", "jpeg", "png", "webp"],
+                label_visibility="collapsed",
+                help="JPEG, PNG or WebP — maximum 20 MB.",
+            )
+
+            scale_ref = None
+            with st.expander("Add scale reference (optional but improves accuracy)"):
+                scale_ref = st.text_input(
+                    "Describe a scale reference visible in the photo",
+                    placeholder='e.g. "Ruler alongside crack shows 50 mm total"',
+                    help="If there is a ruler, coin, or object of known size in the photo, describe it here.",
+                )
+
+            analyze_photo_btn = st.button(
+                "🔍 Analyse Photo",
+                disabled=(uploaded_file is None),
+                use_container_width=True,
+                type="primary",
+            )
+
+            if uploaded_file is not None:
+                st.image(uploaded_file, caption="Uploaded photo", use_container_width=True)
+
+    with photo_right:
+        with st.container(border=True):
+            if analyze_photo_btn and uploaded_file is not None:
+                mime = uploaded_file.type or "image/jpeg"
+                img_bytes = uploaded_file.read()
+                with st.spinner("Analysing photo with AI vision…"):
+                    try:
+                        ir = analyse_crack_image(
+                            img_bytes,
+                            mime_type=mime,
+                            scale_reference=scale_ref if scale_ref else None,
+                        )
+                        st.session_state.image_result = ir
+                    except Exception as exc:
+                        err_msg = str(exc)
+                        if "FREE_CLOUD_BUDGET_EXCEEDED" in err_msg:
+                            st.error("Your Replit AI cloud budget has been exceeded. Please check your account.")
+                        else:
+                            st.error(f"Analysis failed: {err_msg}")
+                        st.session_state.image_result = None
+
+            ir = st.session_state.image_result
+
+            if ir is None:
+                st.markdown(
+                    """<div class="sfp-upload-hint">
+                        <div class="sfp-upload-hint-icon">🔬</div>
+                        <strong>Upload a photo and click Analyse</strong><br>
+                        <span style="font-size:0.82rem;margin-top:0.3rem;display:block;">
+                        Results will appear here — crack type, dimensions, severity, and recommended action.
+                        </span>
+                    </div>""",
+                    unsafe_allow_html=True,
+                )
+            else:
+                detected = ir.get("crack_detected", False)
+                severity = ir.get("severity", "low").lower()
+                confidence = ir.get("confidence", "low").lower()
+
+                sev_class_map = {
+                    "low": "sfp-sev-low",
+                    "moderate": "sfp-sev-moderate",
+                    "high": "sfp-sev-high",
+                    "critical": "sfp-sev-critical",
+                }
+                sev_icon_map = {
+                    "low": "✅", "moderate": "⚠️", "high": "🔴", "critical": "🚨"
+                }
+                sev_css = sev_class_map.get(severity, "sfp-sev-low")
+                sev_icon = sev_icon_map.get(severity, "✅")
+
+                if not detected:
+                    st.markdown(
+                        """<div class="sfp-no-crack">
+                            <div class="sfp-no-crack-icon">🔍</div>
+                            <strong>No crack detected</strong><br>
+                            <span style="font-size:0.85rem;">
+                            The AI found no visible cracks in this image.
+                            Try a clearer photo or adjust the lighting.
+                            </span>
+                        </div>""",
+                        unsafe_allow_html=True,
+                    )
+                else:
+                    # Header row: severity + confidence
+                    crack_type = ir.get("crack_type", "unknown").title()
+                    st.markdown(
+                        f"""<div style="display:flex;align-items:center;gap:0.65rem;flex-wrap:wrap;margin-bottom:0.5rem;">
+                            <span class="sfp-sev-badge {sev_css}">{sev_icon} {severity.title()} severity</span>
+                            <span class="sfp-conf-badge">Confidence: {confidence.title()}</span>
+                            <span style="font-size:0.9rem;font-weight:700;color:var(--primary);">{crack_type} crack</span>
+                        </div>""",
+                        unsafe_allow_html=True,
+                    )
+
+                    # Findings
+                    findings = ir.get("findings", "")
+                    if findings:
+                        st.markdown(
+                            f'<div class="sfp-findings-box">{findings}</div>',
+                            unsafe_allow_html=True,
+                        )
+
+                    # Detail grid
+                    details = [
+                        ("Estimated length", ir.get("crack_length_estimate", "—")),
+                        ("Estimated width",  ir.get("crack_width_estimate",  "—")),
+                        ("Orientation",      ir.get("orientation",           "—").title()),
+                        ("Surface",          ir.get("surface_condition",     "—").title()),
+                    ]
+                    grid_html = '<div class="sfp-detail-grid">'
+                    for label, val in details:
+                        grid_html += (
+                            f'<div class="sfp-detail-item">'
+                            f'<p class="sfp-detail-label">{label}</p>'
+                            f'<p class="sfp-detail-val">{val}</p>'
+                            f'</div>'
+                        )
+                    grid_html += '</div>'
+                    st.markdown(grid_html, unsafe_allow_html=True)
+
+                    # Recommended action
+                    action = ir.get("recommended_action", "")
+                    if action:
+                        if severity == "critical":
+                            st.error(action, icon=":material/warning:")
+                        elif severity == "high":
+                            st.error(action, icon=":material/warning:")
+                        elif severity == "moderate":
+                            st.warning(action, icon=":material/error:")
+                        else:
+                            st.success(action, icon=":material/check_circle:")
+
+                    # Load into predictor
+                    num = ir.get("numeric_estimates", {})
+                    has_crack_mm    = num.get("crack_length_mm") is not None
+                    has_stress      = num.get("stress_intensity") is not None
+
+                    if has_crack_mm or has_stress:
+                        st.markdown("---")
+                        st.markdown(
+                            "**AI-estimated measurements** — load these values into the predictor "
+                            "and run a full analysis:"
+                        )
+                        est_crack  = num.get("crack_length_mm")  or st.session_state.prefill_crack
+                        est_stress = num.get("stress_intensity") or st.session_state.prefill_stress
+
+                        col_e1, col_e2 = st.columns(2)
+                        with col_e1:
+                            if has_crack_mm:
+                                st.markdown(
+                                    f'<div class="sfp-detail-item"><p class="sfp-detail-label">Crack length</p>'
+                                    f'<p class="sfp-detail-val">{est_crack:.1f} mm</p></div>',
+                                    unsafe_allow_html=True,
+                                )
+                        with col_e2:
+                            if has_stress:
+                                st.markdown(
+                                    f'<div class="sfp-detail-item"><p class="sfp-detail-label">Stress intensity</p>'
+                                    f'<p class="sfp-detail-val">{est_stress:.1f} MPa·√m</p></div>',
+                                    unsafe_allow_html=True,
+                                )
+
+                        if st.button(
+                            "⚙ Load into Predictor",
+                            use_container_width=True,
+                            help="Copies AI-estimated values to the sidebar inputs on the Prediction tab.",
+                        ):
+                            if has_crack_mm:
+                                st.session_state.prefill_crack = float(est_crack)
+                            if has_stress:
+                                st.session_state.prefill_stress = float(est_stress)
+                            # Clear widget keys so they pick up the new defaults on rerun
+                            for k in ("sb_crack", "sb_stress", "sb_cycles"):
+                                if k in st.session_state:
+                                    del st.session_state[k]
+                            st.rerun()
+
 
 # ── MODEL PERFORMANCE ────────────────────────────────────────────────────────
 with tab_model:

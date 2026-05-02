@@ -9,6 +9,7 @@ A machine learning web application that estimates the probability of failure in 
 - **Language**: Python 3.x
 - **Frontend/UI**: Streamlit
 - **Machine Learning**: scikit-learn (RandomForestClassifier)
+- **AI Vision**: OpenAI gpt-5 via Replit AI Integrations (no API key required)
 - **Data**: pandas, numpy
 - **Visualization**: matplotlib
 - **Model Persistence**: joblib
@@ -17,6 +18,7 @@ A machine learning web application that estimates the probability of failure in 
 
 ```
 ├── app.py                  # Main Streamlit application entry point
+├── image_analysis.py       # OpenAI Vision crack analysis module
 ├── requirements.txt        # Python dependencies
 ├── data/
 │   ├── __init__.py
@@ -25,8 +27,7 @@ A machine learning web application that estimates the probability of failure in 
 │   ├── train.py            # Random Forest training logic
 │   └── train_image_rf.py   # Extended training script
 ├── failure_model.py        # Standalone model utility
-├── train_model.py          # Standalone training script
-└── README.md / DEPLOYMENT.md
+└── train_model.py          # Standalone training script
 ```
 
 ## Running the App
@@ -41,8 +42,9 @@ streamlit run app.py --server.port 5000 --server.address 0.0.0.0 --server.headle
 
 - **Risk Gauge**: Half-circle gauge showing failure probability
 - **KPI Dashboard**: Failure probability %, risk classification, model accuracy, training rows
+- **Photo Analysis Tab**: Upload a crack photo → AI vision (GPT-5) analyses crack type, dimensions, severity, confidence, and recommended action; estimated measurements can be loaded into the predictor in one click
 - **Model Performance Tab**: Confusion matrix and feature importance charts
-- **Sidebar Inputs**: Crack size (mm), stress intensity, load cycles
+- **Sidebar Inputs**: Crack size (mm), stress intensity, load cycles — auto-populated from photo analysis
 - **Risk Thresholds**: Low (<35%), Moderate (35-70%), High (≥70%)
 
 ## Data & Model
