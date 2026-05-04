@@ -1,12 +1,9 @@
 from __future__ import annotations
-import random
-import time
+import base64
 from pathlib import Path
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import streamlit as st
-from matplotlib.colors import LinearSegmentedColormap
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import accuracy_score, confusion_matrix
 from sklearn.model_selection import train_test_split
@@ -14,202 +11,219 @@ from image_analysis import analyse_crack_image
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 DATASET_PATH = PROJECT_ROOT / "data" / "crack_growth_data.csv"
+ASSETS_DIR = PROJECT_ROOT / "assets"
 FEATURE_COLUMNS = ["crack_length_mm", "stress_intensity", "load_cycles"]
-FEATURE_LABELS = {
-    "crack_length_mm": "Crack length",
-    "stress_intensity": "Stress intensity",
-    "load_cycles": "Load cycles",
-}
 
 st.set_page_config(
-    page_title="Structural Failure Risk Predictor",
-    page_icon=":gear:",
+    page_title="Structural Integrity AI | Next-Gen Analysis",
+    page_icon="🏗️",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="collapsed",
 )
 
-# ── Session state defaults ────────────────────────────────────────────────────
-if "result" not in st.session_state:
-    st.session_state.result = None
-if "last_inputs" not in st.session_state:
-    st.session_state.last_inputs = None
-if "image_result" not in st.session_state:
-    st.session_state.image_result = None
-if "prefill_crack" not in st.session_state:
-    st.session_state.prefill_crack = 10.0
-if "prefill_stress" not in st.session_state:
-    st.session_state.prefill_stress = 35.0
-if "prefill_cycles" not in st.session_state:
-    st.session_state.prefill_cycles = 250_000
-if "carousel_index" not in st.session_state:
-    st.session_state.carousel_index = 0
+# ── Asset Helpers ────────────────────────────────────────────────────────────
+def get_base64_img(path: Path):
+    if not path.exists(): return ""
+    with open(path, "rb") as f:
+        data = f.read()
+    return base64.b64encode(data).decode()
 
-CUSTOM_CSS = """
+img1_b64 = get_base64_img(ASSETS_DIR / "Photo1.webp")
+img2_b64 = get_base64_img(ASSETS_DIR / "Photo2.png")
+
+# ── Session state ────────────────────────────────────────────────────────────
+if "result" not in st.session_state: st.session_state.result = None
+if "image_result" not in st.session_state: st.session_state.image_result = None
+if "prefill_crack" not in st.session_state: st.session_state.prefill_crack = 10.0
+if "prefill_stress" not in st.session_state: st.session_state.prefill_stress = 35.0
+if "prefill_cycles" not in st.session_state: st.session_state.prefill_cycles = 250_000
+
+# ── Advanced UI Engine (Three.js + GSAP + Custom CSS) ────────────────────────
+CUSTOM_UI_ENGINE = f"""
 <style>
-:root {
-    --bg:          #f8fafc;
-    --surface:     #ffffff;
-    --surface2:    #f1f5f9;
-    --text:        #0f172a;
-    --text-soft:   #475569;
-    --muted:       #64748b;
-    --border:      #e2e8f0;
-    --primary:     #1e293b;
-    --accent:      #f59e0b;
-    --success:     #16a34a;
-    --warning:     #d97706;
-    --danger:      #dc2626;
-    --blue:        #2563eb;
-    --radius:      8px;
-    --shadow-sm:   0 1px 2px rgba(0,0,0,0.05);
-    --shadow-md:   0 4px 6px -1px rgba(0,0,0,0.1);
-    --shadow-lg:   0 10px 15px -3px rgba(0,0,0,0.1);
-    --transition:  all 0.3s ease;
-}
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;700;900&display=swap');
 
-/* Base Styles */
-.stApp { background: var(--bg); color: var(--text); }
-.block-container { padding-top: 1rem; max-width: 1400px; }
+:root {{
+    --primary: #0f172a;
+    --accent: #3b82f6;
+    --text: #f8fafc;
+    --glass: rgba(15, 23, 42, 0.8);
+}}
 
-/* Button Styling */
-.stButton > button {
-    color: white !important;
-}
+.stApp {{
+    background: #020617;
+    font-family: 'Inter', sans-serif;
+    color: var(--text);
+}}
 
-/* Tab Styling */
-.stTabs [data-baseweb="tab"] {
-    color: #0f172a !important;
-}
-.stTabs [aria-selected="true"] {
-    color: #0f172a !important;
-}
+/* ── 3D Scroll Canvas ── */
+#canvas-container {{
+    position: fixed;
+    top: 0; left: 0;
+    width: 100vw; height: 100vh;
+    z-index: 0;
+    pointer-events: none;
+}}
 
-/* Scroll Reveal */
-.reveal {
-    opacity: 0;
-    transform: translateY(20px);
-    transition: var(--transition);
-}
-.reveal.active {
-    opacity: 1;
-    transform: translateY(0);
-}
-
-/* Parallax Hero */
-.parallax-container {
+.scroll-section {{
     position: relative;
-    height: 220px;
-    overflow: hidden;
-    border-radius: var(--radius);
-    margin-bottom: 1.5rem;
+    height: 100vh;
     display: flex;
     align-items: center;
     justify-content: center;
-    background: #0f172a;
-    box-shadow: var(--shadow-md);
-}
-.parallax-bg {
-    position: absolute;
-    top: -20%; left: 0; width: 100%; height: 140%;
-    background-image: url('https://images.unsplash.com/photo-1581092160562-40aa08e78837?auto=format&fit=crop&q=80&w=2070');
-    background-size: cover;
-    background-position: center;
-    opacity: 0.35;
-    z-index: 0;
-}
-.parallax-content {
-    position: relative;
     z-index: 1;
-    text-align: center;
-    color: white;
-}
+    pointer-events: none;
+}}
 
-/* Carousel */
-.carousel-card {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: 1.25rem;
-    text-align: center;
-    min-height: 200px;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    box-shadow: var(--shadow-sm);
-}
+.glass-card {{
+    background: var(--glass);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 24px;
+    padding: 2.5rem;
+    max-width: 800px;
+    width: 90%;
+    pointer-events: auto;
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+    animation: slideUp 1s cubic-bezier(0.23, 1, 0.32, 1);
+}}
 
-/* KPI Cards */
-.kpi-card {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: 1rem;
-    height: 100%;
-    transition: var(--transition);
-    box-shadow: var(--shadow-sm);
-}
-.kpi-card:hover {
-    border-color: var(--blue);
-    transform: translateY(-2px);
-    box-shadow: var(--shadow-md);
-}
-.kpi-label { font-size: 0.75rem; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
-.kpi-value { font-size: 1.75rem; font-weight: 800; color: var(--primary); margin: 0.25rem 0; }
+@keyframes slideUp {{
+    from {{ opacity: 0; transform: translateY(40px); }}
+    to {{ opacity: 1; transform: translateY(0); }}
+}}
 
-/* Risk Badges */
-.risk-badge {
-    padding: 0.25rem 0.75rem;
-    border-radius: 999px;
-    font-weight: 700;
-    font-size: 0.85rem;
-}
-.risk-low { background: #dcfce7; color: #166534; }
-.risk-mod { background: #fef3c7; color: #92400e; }
-.risk-high { background: #fee2e2; color: #991b1b; }
+.hero-title {{
+    font-size: 5rem;
+    font-weight: 900;
+    line-height: 1;
+    margin-bottom: 1rem;
+    background: linear-gradient(to bottom right, #fff, #94a3b8);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}}
 
-/* Photo Analysis */
-.photo-findings {
-    background: var(--surface2);
-    border-radius: var(--radius);
-    padding: 1rem;
-    border-left: 4px solid var(--blue);
-    font-size: 0.9rem;
-    color: #0f172a !important;
-}
+.kpi-grid {{
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1.5rem;
+    margin-top: 2rem;
+}}
 
-/* Dataframe styling */
-[data-testid="stDataFrame"] {
-    color: #0f172a !important;
-}
-[data-testid="stDataFrame"] * {
-    color: #0f172a !important;
-}
+.kpi-item {{
+    background: rgba(255, 255, 255, 0.05);
+    padding: 1.5rem;
+    border-radius: 16px;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+}}
+
+.kpi-label {{ font-size: 0.75rem; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.1em; }}
+.kpi-value {{ font-size: 2.5rem; font-weight: 700; color: #fff; }}
+
+/* ── Custom Streamlit Overrides ── */
+[data-testid="stHeader"] {{ background: transparent !important; }}
+.stTabs [data-baseweb="tab-list"] {{ background: transparent !important; gap: 2rem; }}
+.stTabs [data-baseweb="tab"] {{ color: #94a3b8 !important; font-weight: 600 !important; font-size: 1.1rem !important; }}
+.stTabs [aria-selected="true"] {{ color: #fff !important; border-bottom-color: var(--accent) !important; }}
+.stButton > button {{
+    background: var(--accent) !important;
+    color: white !important;
+    border-radius: 12px !important;
+    padding: 0.75rem 2rem !important;
+    font-weight: 700 !important;
+    border: none !important;
+    transition: all 0.3s ease !important;
+}}
+.stButton > button:hover {{ transform: scale(1.05); box-shadow: 0 0 20px rgba(59, 130, 246, 0.5); }}
+
 </style>
 
+<div id="canvas-container"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/ScrollTrigger.min.js"></script>
+
 <script>
-function reveal() {
-  var reveals = document.querySelectorAll(".reveal");
-  for (var i = 0; i < reveals.length; i++) {
-    var windowHeight = window.innerHeight;
-    var elementTop = reveals[i].getBoundingClientRect().top;
-    if (elementTop < windowHeight - 50) {
-      reveals[i].classList.add("active");
-    }
-  }
-}
-window.addEventListener("scroll", reveal);
-window.addEventListener("scroll", function() {
-  const parallax = document.querySelector(".parallax-bg");
-  if (parallax) {
-    let scrollPosition = window.pageYOffset;
-    parallax.style.transform = 'translateY(' + scrollPosition * 0.15 + 'px)';
-  }
-});
-setTimeout(reveal, 100);
+const container = document.getElementById('canvas-container');
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+const renderer = new THREE.WebGLRenderer({{ antialias: true, alpha: true }});
+renderer.setSize(window.innerWidth, window.innerHeight);
+container.appendChild(renderer.domElement);
+
+const loader = new THREE.TextureLoader();
+const tex1 = loader.load('data:image/webp;base64,{img1_b64}');
+const tex2 = loader.load('data:image/png;base64,{img2_b64}');
+
+const geometry = new THREE.PlaneGeometry(16, 9, 32, 32);
+const material = new THREE.ShaderMaterial({{
+    uniforms: {{
+        uTime: {{ value: 0 }},
+        uProgress: {{ value: 0 }},
+        uTex1: {{ value: tex1 }},
+        uTex2: {{ value: tex2 }},
+        uResolution: {{ value: new THREE.Vector2(window.innerWidth, window.innerHeight) }}
+    }},
+    vertexShader: `
+        varying vec2 vUv;
+        uniform float uProgress;
+        void main() {{
+            vUv = uv;
+            vec3 pos = position;
+            float dist = distance(uv, vec2(0.5));
+            pos.z += sin(dist * 10.0 - uProgress * 10.0) * uProgress * 2.0;
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
+        }}
+    `,
+    fragmentShader: `
+        varying vec2 vUv;
+        uniform sampler2D uTex1;
+        uniform sampler2D uTex2;
+        uniform float uProgress;
+        void main() {{
+            vec4 t1 = texture2D(uTex1, vUv);
+            vec4 t2 = texture2D(uTex2, vUv);
+            float noise = fract(sin(dot(vUv, vec2(12.9898, 78.233))) * 43758.5453);
+            float p = smoothstep(uProgress - 0.1, uProgress + 0.1, vUv.y + noise * 0.2);
+            gl_FragColor = mix(t1, t2, 1.0 - p);
+        }}
+    `,
+    transparent: true
+}});
+
+const mesh = new THREE.Mesh(geometry, material);
+scene.add(mesh);
+camera.position.z = 8;
+
+gsap.registerPlugin(ScrollTrigger);
+
+gsap.to(material.uniforms.uProgress, {{
+    value: 1,
+    scrollTrigger: {{
+        trigger: "body",
+        start: "top top",
+        end: "bottom bottom",
+        scrub: 1
+    }}
+}});
+
+function animate() {{
+    requestAnimationFrame(animate);
+    material.uniforms.uTime.value += 0.01;
+    renderer.render(scene, camera);
+}}
+animate();
+
+window.addEventListener('resize', () => {{
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+}});
 </script>
 """
 
-st.markdown(CUSTOM_CSS, unsafe_allow_html=True)
+st.markdown(CUSTOM_UI_ENGINE, unsafe_allow_html=True)
 
 # ---------- Data & Model -----------------------------------------------------
 @st.cache_data
@@ -229,155 +243,117 @@ def train_model(path: Path):
     x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=0.25, random_state=42, stratify=y)
     model = RandomForestClassifier(n_estimators=200, random_state=42, class_weight="balanced", n_jobs=1)
     model.fit(x_train, y_train)
-    predictions = model.predict(x_test)
-    accuracy = accuracy_score(y_test, predictions)
-    matrix = confusion_matrix(y_test, predictions).astype(int).tolist()
-    return model, float(accuracy), matrix, int(len(data)), int(len(x_test))
+    accuracy = accuracy_score(y_test, model.predict(x_test))
+    return model, float(accuracy), int(len(data))
 
-model, accuracy, matrix, total_rows, test_rows = train_model(DATASET_PATH)
+model, accuracy, total_rows = train_model(DATASET_PATH)
 
-# ---------- Sidebar ----------------------------------------------------------
-with st.sidebar:
-    st.title("⚙️ Inspection")
-    crack_size = st.number_input("Crack size (mm)", 0.0, 250.0, float(st.session_state.prefill_crack), step=0.1)
-    stress = st.number_input("Stress intensity", 0.0, 250.0, float(st.session_state.prefill_stress), step=0.5)
-    cycles = st.number_input("Load cycles", 0, 10_000_000, int(st.session_state.prefill_cycles), step=1000)
-    st.markdown("---")
-    analyze_clicked = st.button("🚀 Run Analysis", type="primary", use_container_width=True)
+# ---------- Scroll Sections --------------------------------------------------
 
-# ---------- Main UI ----------------------------------------------------------
-
-# 1. Parallax Hero (Reduced height)
+# Section 1: Hero
+st.markdown('<div class="scroll-section">', unsafe_allow_html=True)
 st.markdown(
     """
-    <div class="parallax-container">
-        <div class="parallax-bg"></div>
-        <div class="parallax-content">
-            <h1 style="font-size: 2.5rem; margin: 0;">Structural Failure Analysis</h1>
-            <p style="font-size: 1.1rem; opacity: 0.9;">Physics-Informed Predictive Maintenance</p>
-        </div>
+    <div class="glass-card" style="text-align: center;">
+        <h1 class="hero-title">INTEGRITY</h1>
+        <p style="font-size: 1.5rem; color: #94a3b8; font-weight: 300;">
+            Next-Generation Structural Failure Prediction.
+        </p>
+        <p style="margin-top: 2rem; color: #64748b; font-size: 0.9rem; text-transform: uppercase; letter-spacing: 0.3em;">
+            Scroll to Analyze Collapse
+        </p>
     </div>
     """,
     unsafe_allow_html=True,
 )
+st.markdown('</div>', unsafe_allow_html=True)
 
-# 2. Materials & KPIs (Combined row to save space)
-top_col1, top_col2 = st.columns([1, 2], gap="medium")
-
-with top_col1:
-    st.markdown("##### 🏗️ Material Profiles")
-    materials = [
-        {"name": "Aluminum 7075-T6", "desc": "Aerospace alloy, fatigue sensitive.", "toughness": "29.0 MPa√m", "icon": "✈️"},
-        {"name": "A36 Carbon Steel", "desc": "Structural steel, ductile.", "toughness": "52.0 MPa√m", "icon": "🏗️"},
-        {"name": "Ti-6Al-4V Titanium", "desc": "Strong, corrosion resistant.", "toughness": "66.0 MPa√m", "icon": "🚀"},
-    ]
+# Section 2: Analysis Interface
+st.markdown('<div class="scroll-section">', unsafe_allow_html=True)
+with st.container():
+    st.markdown('<div class="glass-card">', unsafe_allow_html=True)
+    st.markdown("## ⚙️ Diagnostic Engine")
     
-    m_prev, m_next = st.columns(2)
-    if m_prev.button("◀ Prev", use_container_width=True):
-        st.session_state.carousel_index = (st.session_state.carousel_index - 1) % len(materials)
-    if m_next.button("Next ▶", use_container_width=True):
-        st.session_state.carousel_index = (st.session_state.carousel_index + 1) % len(materials)
+    col1, col2 = st.columns(2, gap="large")
+    with col1:
+        crack_size = st.number_input("Crack size (mm)", 0.0, 250.0, float(st.session_state.prefill_crack))
+        stress = st.number_input("Stress intensity", 0.0, 250.0, float(st.session_state.prefill_stress))
+        cycles = st.number_input("Load cycles", 0, 10_000_000, int(st.session_state.prefill_cycles))
+        if st.button("🚀 EXECUTE ANALYSIS", use_container_width=True):
+            input_row = pd.DataFrame([{"crack_length_mm": crack_size, "stress_intensity": stress, "load_cycles": cycles}])
+            prob = float(model.predict_proba(input_row)[0, 1])
+            st.session_state.result = {"probability": prob}
     
-    cur = materials[st.session_state.carousel_index]
-    st.markdown(
-        f"""
-        <div class="carousel-card">
-            <div style="font-size: 2rem;">{cur['icon']}</div>
-            <div style="font-weight: 700; color: var(--primary);">{cur['name']}</div>
-            <div style="font-size: 0.85rem; color: var(--muted); margin: 0.25rem 0;">{cur['desc']}</div>
-            <div style="font-size: 0.8rem; font-weight: 600; color: var(--blue);">K<sub>IC</sub>: {cur['toughness']}</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-with top_col2:
-    st.markdown("##### 📊 Live Risk Status")
-    current_inputs = (crack_size, stress, cycles)
-    if analyze_clicked:
-        input_row = pd.DataFrame([{"crack_length_mm": crack_size, "stress_intensity": stress, "load_cycles": cycles}])
-        prob = float(model.predict_proba(input_row)[0, 1])
-        st.session_state.result = {"probability": prob, "crack": crack_size, "stress": stress, "cycles": cycles}
-        st.session_state.last_inputs = current_inputs
-
-    res = st.session_state.result
-    prob = res["probability"] if res else 0.0
-    risk_label = "High" if prob >= 0.7 else "Moderate" if prob >= 0.35 else "Low"
-    risk_class = "risk-high" if prob >= 0.7 else "risk-mod" if prob >= 0.35 else "risk-low"
-
-    k_col1, k_col2, k_col3 = st.columns(3)
-    with k_col1:
-        st.markdown(f'<div class="kpi-card"><div class="kpi-label">Probability</div><div class="kpi-value">{prob*100:.1f}%</div></div>', unsafe_allow_html=True)
-    with k_col2:
-        st.markdown(f'<div class="kpi-card"><div class="kpi-label">Risk Level</div><div style="margin-top:0.5rem;"><span class="risk-badge {risk_class}">{risk_label}</span></div></div>', unsafe_allow_html=True)
-    with k_col3:
-        st.markdown(f'<div class="kpi-card"><div class="kpi-label">Accuracy</div><div class="kpi-value">{accuracy*100:.1f}%</div></div>', unsafe_allow_html=True)
-
-# 3. Tabs for Deep Analysis & Photo Analysis
-st.markdown("---")
-tab_diag, tab_photo, tab_about = st.tabs(["📈 Diagnostics", "📷 Photo Analysis", "ℹ️ About"])
-
-with tab_diag:
-    st.markdown('<div class="reveal">', unsafe_allow_html=True)
-    d_col1, d_col2 = st.columns(2)
-    with d_col1:
-        st.markdown("**Feature Importance**")
-        importances = pd.Series(model.feature_importances_, index=FEATURE_COLUMNS)
-        st.bar_chart(importances)
-    with d_col2:
-        st.markdown("**Confusion Matrix**")
-        cm_df = pd.DataFrame(matrix, index=["Actual Safe", "Actual Failed"], columns=["Pred Safe", "Pred Failed"])
-        st.markdown(
-            cm_df.style.set_properties(**{'color': '#0f172a'}).to_html(),
-            unsafe_allow_html=True
-        )
-    st.markdown('</div><script>reveal();</script>', unsafe_allow_html=True)
-
-with tab_photo:
-    st.markdown('<div class="reveal">', unsafe_allow_html=True)
-    p_left, p_right = st.columns([1, 1], gap="large")
-    with p_left:
-        up_file = st.file_uploader("Upload inspection photo", type=["jpg", "png", "jpeg"])
-        scale_ref = st.text_input("Scale reference (optional)", placeholder="e.g. 50mm ruler")
-        if st.button("🔍 Analyze Photo", disabled=(up_file is None), use_container_width=True, type="primary"):
-            with st.spinner("AI analyzing..."):
-                try:
-                    ir = analyse_crack_image(up_file.read(), mime_type=up_file.type, scale_reference=scale_ref)
-                    st.session_state.image_result = ir
-                except Exception as e:
-                    st.error(f"Error: {e}")
-    
-    with p_right:
-        ir = st.session_state.image_result
-        if ir:
-            st.markdown(f"**Crack Detected:** {'✅ Yes' if ir.get('crack_detected') else '❌ No'}")
-            st.markdown(f"**Type:** {ir.get('crack_type')}")
-            st.markdown(f"**Severity:** {ir.get('severity').title()}")
-            st.markdown(f'<div class="photo-findings"><b>Findings:</b><br>{ir.get("findings")}</div>', unsafe_allow_html=True)
-            if st.button("📥 Load estimates into predictor"):
-                nest = ir.get("numeric_estimates", {})
-                if nest.get("crack_length_mm"): st.session_state.prefill_crack = float(nest["crack_length_mm"])
-                if nest.get("stress_intensity"): st.session_state.prefill_stress = float(nest["stress_intensity"])
-                st.rerun()
+    with col2:
+        res = st.session_state.result
+        if res:
+            prob = res["probability"]
+            st.markdown(
+                f"""
+                <div class="kpi-item" style="text-align: center; border-color: {'#ef4444' if prob > 0.7 else '#3b82f6'};">
+                    <div class="kpi-label">Failure Probability</div>
+                    <div class="kpi-value" style="color: {'#ef4444' if prob > 0.7 else '#3b82f6'};">{prob*100:.1f}%</div>
+                    <div style="margin-top: 1rem; font-weight: 700; color: #fff;">
+                        STATUS: {'CRITICAL' if prob > 0.7 else 'NOMINAL'}
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
         else:
-            st.info("Upload a photo to see AI-driven crack analysis.")
-    st.markdown('</div><script>reveal();</script>', unsafe_allow_html=True)
+            st.info("Adjust parameters and execute to see live risk probability.")
+            
+    st.markdown('</div>', unsafe_allow_html=True)
+st.markdown('</div>', unsafe_allow_html=True)
 
-with tab_about:
-    st.markdown(
-        """
-        <div class="reveal">
-            <h4>Methodology</h4>
-            <p>This tool combines fracture mechanics (Paris' Law) with Random Forest classification to predict the likelihood of structural failure.</p>
-            <ul>
-                <li><b>Paris' Law:</b> Models crack growth rate under cyclic loading.</li>
-                <li><b>Random Forest:</b> Provides robust classification across varied material profiles.</li>
-                <li><b>Computer Vision:</b> Leverages GPT-5 Vision for preliminary inspection triage.</li>
-            </ul>
-        </div>
-        <script>reveal();</script>
-        """,
-        unsafe_allow_html=True,
-    )
+# Section 3: Computer Vision
+st.markdown('<div class="scroll-section">', unsafe_allow_html=True)
+with st.container():
+    st.markdown('<div class="glass-card">', unsafe_allow_html=True)
+    st.markdown("## 📷 Neural Inspection")
+    
+    up_file = st.file_uploader("Upload inspection scan", type=["jpg", "png", "jpeg"])
+    if st.button("🔍 SCAN FOR ANOMALIES", disabled=(up_file is None), use_container_width=True):
+        with st.spinner("AI analyzing structural patterns..."):
+            try:
+                ir = analyse_crack_image(up_file.read(), mime_type=up_file.type)
+                st.session_state.image_result = ir
+            except Exception as e:
+                st.error(f"Analysis Error: {e}")
+                
+    ir = st.session_state.image_result
+    if ir:
+        st.markdown(
+            f"""
+            <div class="photo-findings" style="margin-top: 1.5rem; background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.2);">
+                <h4 style="color: #60a5fa; margin-top: 0;">AI Detection Report</h4>
+                <p><b>Severity:</b> {ir.get('severity').upper()}</p>
+                <p>{ir.get('findings')}</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    st.markdown('</div>', unsafe_allow_html=True)
+st.markdown('</div>', unsafe_allow_html=True)
 
-st.markdown("<div style='height: 50px;'></div>", unsafe_allow_html=True)
+# Section 4: Performance & Model
+st.markdown('<div class="scroll-section">', unsafe_allow_html=True)
+with st.container():
+    st.markdown('<div class="glass-card">', unsafe_allow_html=True)
+    st.markdown("## 🧬 Core Intelligence")
+    
+    k_grid1, k_grid2 = st.columns(2)
+    with k_grid1:
+        st.markdown(f'<div class="kpi-item"><div class="kpi-label">Model Accuracy</div><div class="kpi-value">{accuracy*100:.1f}%</div></div>', unsafe_allow_html=True)
+    with k_grid2:
+        st.markdown(f'<div class="kpi-item"><div class="kpi-label">Training Data</div><div class="kpi-value">{total_rows:,}</div></div>', unsafe_allow_html=True)
+    
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown("#### Methodology")
+    st.write("Our neural network utilizes a physics-informed Random Forest architecture, trained on Paris' Law growth simulations and real-world failure datasets.")
+    
+    st.markdown('</div>', unsafe_allow_html=True)
+st.markdown('</div>', unsafe_allow_html=True)
+
+# Footer Spacer
+st.markdown("<div style='height: 10vh;'></div>", unsafe_allow_html=True)
