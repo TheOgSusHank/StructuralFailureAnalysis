@@ -71,6 +71,19 @@ CUSTOM_CSS = """
 .stApp { background: var(--bg); color: var(--text); }
 .block-container { padding-top: 1rem; max-width: 1400px; }
 
+/* Button Styling */
+.stButton > button {
+    color: white !important;
+}
+
+/* Tab Styling */
+.stTabs [data-baseweb="tab"] {
+    color: #0f172a !important;
+}
+.stTabs [aria-selected="true"] {
+    color: #0f172a !important;
+}
+
 /* Scroll Reveal */
 .reveal {
     opacity: 0;
@@ -161,6 +174,15 @@ CUSTOM_CSS = """
     padding: 1rem;
     border-left: 4px solid var(--blue);
     font-size: 0.9rem;
+    color: #0f172a !important;
+}
+
+/* Dataframe styling */
+[data-testid="stDataFrame"] {
+    color: #0f172a !important;
+}
+[data-testid="stDataFrame"] * {
+    color: #0f172a !important;
 }
 </style>
 
@@ -304,7 +326,11 @@ with tab_diag:
         st.bar_chart(importances)
     with d_col2:
         st.markdown("**Confusion Matrix**")
-        st.table(pd.DataFrame(matrix, index=["Actual Safe", "Actual Failed"], columns=["Pred Safe", "Pred Failed"]))
+        cm_df = pd.DataFrame(matrix, index=["Actual Safe", "Actual Failed"], columns=["Pred Safe", "Pred Failed"])
+        st.markdown(
+            cm_df.style.set_properties(**{'color': '#0f172a'}).to_html(),
+            unsafe_allow_html=True
+        )
     st.markdown('</div><script>reveal();</script>', unsafe_allow_html=True)
 
 with tab_photo:
